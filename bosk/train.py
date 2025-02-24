@@ -1,37 +1,50 @@
+from bosk import *
 from bosk.imports import *
 from bosk.utils import make_prediction
 
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
-
-def train(model, train_dataloader, valid_dataloader, criterion, lr, epochs, model_name, num_classes=5, verbose=False, is_scheduler=False):
-    model = model.to(device)
+def train(
+    model,
+    train_dataloader,
+    valid_dataloader,
+    criterion,
+    lr,
+    epochs,
+    model_name,
+    num_classes=5,
+    verbose=False,
+    is_scheduler=False,
+):
+    model = model.to(DEVICE)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
-    iou_score = JaccardIndex(task="multiclass" if num_classes > 2 else "binary", num_classes=num_classes).to(device)
-    dice_score = Dice(num_classes=num_classes, threshold=0.5, zero_division=1e-8).to(device)
-    
+    iou_score = JaccardIndex(
+        task="multiclass" if num_classes > 2 else "binary", num_classes=num_classes
+    ).to(DEVICE)
+    dice_score = Dice(num_classes=num_classes, threshold=0.5, zero_division=1e-8).to(
+        DEVICE
+    )
+
     if is_scheduler:
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
 
     # Получаем первый батч валидации (фиксируем его)
     val_data, val_true_mask = next(iter(valid_dataloader))
-    val_data, val_true_mask = val_data.to(device), val_true_mask.to(device)
+    val_data, val_true_mask = val_data.to(DEVICE), val_true_mask.to(DEVICE)
 
     best_model = None
     best_val_loss = float("inf")  # Инициализируем наихудшее значение лосса
     best_val_iou_score = 0
     best_val_dice_score = 0
 
-    loss_history       = {"train": [], "valid": []}
-    iou_score_history  = {"train": [], "valid": []}
+    loss_history = {"train": [], "valid": []}
+    iou_score_history = {"train": [], "valid": []}
     dice_score_history = {"train": [], "valid": []}
 
     # Начальная проверка
     model.eval()
     with torch.no_grad():
         val_pred = make_prediction(model, val_data, model_name)
-        predicted_classes = torch.argmax(val_pred, dim=1)       # Теперь [B, H, W]
+        predicted_classes = torch.argmax(val_pred, dim=1)  # Теперь [B, H, W]
         initial_val_loss = criterion(val_pred, val_true_mask).item()
         initial_val_iou_score = iou_score(predicted_classes, val_true_mask).detach()
         initial_val_dice_score = dice_score(predicted_classes, val_true_mask).detach()
@@ -47,9 +60,9 @@ def train(model, train_dataloader, valid_dataloader, criterion, lr, epochs, mode
         model.train()
         total_loss = 0
         total_iou_score, total_dice_score = 0, 0
-        
+
         for data, true_mask in tqdm(train_dataloader, desc="Training", leave=False):
-            data, true_mask = data.to(device), true_mask.to(device)
+            data, true_mask = data.to(DEVICE), true_mask.to(DEVICE)
             optimizer.zero_grad()
 
             prediction = make_prediction(model, data, model_name)
@@ -97,8 +110,12 @@ def train(model, train_dataloader, valid_dataloader, criterion, lr, epochs, mode
 
         if verbose:
             print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
-            print(f"Train IoU score: {train_iou_score:.4f}, Val IoU score: {val_iou_score:.4f}")
-            print(f"Train Dice score: {train_dice_score:.4f}, Val Dice score: {val_dice_score:.4f}")
+            print(
+                f"Train IoU score: {train_iou_score:.4f}, Val IoU score: {val_iou_score:.4f}"
+            )
+            print(
+                f"Train Dice score: {train_dice_score:.4f}, Val Dice score: {val_dice_score:.4f}"
+            )
 
     print(f"Best Validation Loss: {best_val_loss:.4f}")
     print(f"Best Validation IoU score: {best_val_iou_score:.4f}")

@@ -3,12 +3,15 @@ name = "bosk"
 version = "0.1.0"
 description = "Module for segmentation extended objects"
 authors = [
-    {name = "m_evgeniy",email = "marchuk.ep@phystech.edu"}
+    {name = "Marchuk Evgeniy",email = "marchuk.ep@phystech.edu"}
 ]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "numpy (>=2.2.3,<3.0.0)",
+    "prettier (>=0.0.7,<0.0.8)",
+    "sphinx (>=8.2.1,<9.0.0)",
+    "sphinx-rtd-theme (>=3.0.2,<4.0.0)",
 ]
 packages = [
     { include = "bosk", from = "."}
@@ -21,4 +24,6 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.group.dev.dependencies]
 fire = "^0.7.0"
-
+isort = "^6.0.0"
+black = "^25.1.0"
+pre-commit = "^4.1.0"

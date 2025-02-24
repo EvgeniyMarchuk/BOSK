@@ -1,8 +1,11 @@
 from bosk import *
 from bosk.imports import *
 
+
 def get_unique_classes(mask_path):
-    """Опеределяем значения уникальных классов в маске, путь до которой передается в функцию"""
+    """
+    Опеределяем значения уникальных классов в маске, путь до которой передается в функцию
+    """
     mask = Image.open(mask_path).convert("L")  # Градации серого
     mask_array = np.array(mask)
 
@@ -16,8 +19,15 @@ def remove_identifier_files(base_path):
     """
     Удаляет файлы, заканчивающиеся на 'Identifier', в images/{20, 50, 100} и masks/{20, 50, 100}.
     """
-    folders = ["images/20", "images/50", "images/100", "masks/20", "masks/50", "masks/100"]
-    
+    folders = [
+        "images/20",
+        "images/50",
+        "images/100",
+        "masks/20",
+        "masks/50",
+        "masks/100",
+    ]
+
     for folder in folders:
         full_path = os.path.join(base_path, folder)
         if os.path.exists(full_path):
@@ -41,7 +51,9 @@ def split_dataset(base_path, train_doze=0.7, test_doze=0.2, valid_doze=0.1):
         mask_files = sorted(glob(os.path.join(base_path, f"masks/{category}/*.png")))
 
         if len(image_files) != len(mask_files):
-            raise ValueError(f"Несовпадение числа изображений и масок в категории {category}")
+            raise ValueError(
+                f"Несовпадение числа изображений и масок в категории {category}"
+            )
 
         dataset_size = len(image_files)
         indices = list(range(dataset_size))
@@ -49,19 +61,24 @@ def split_dataset(base_path, train_doze=0.7, test_doze=0.2, valid_doze=0.1):
 
         split_points = {
             "train": int(sets["train"] * dataset_size),
-            "test": int(sets["train"] * dataset_size) + int(sets["test"] * dataset_size)
+            "test": int(sets["train"] * dataset_size)
+            + int(sets["test"] * dataset_size),
         }
 
         partitions = {
-            "train": indices[:split_points["train"]],
-            "test": indices[split_points["train"]:split_points["test"]],
-            "valid": indices[split_points["test"]:]
+            "train": indices[: split_points["train"]],
+            "test": indices[split_points["train"] : split_points["test"]],
+            "valid": indices[split_points["test"] :],
         }
 
         for set_name, idx_list in partitions.items():
             for idx in idx_list:
-                shutil.move(image_files[idx], os.path.join(base_path, f"{set_name}/images"))
-                shutil.move(mask_files[idx], os.path.join(base_path, f"{set_name}/masks"))
+                shutil.move(
+                    image_files[idx], os.path.join(base_path, f"{set_name}/images")
+                )
+                shutil.move(
+                    mask_files[idx], os.path.join(base_path, f"{set_name}/masks")
+                )
 
     print("Разделение завершено.")
 
@@ -74,18 +91,21 @@ def preprocess_mask(mask):
     new_mask = np.zeros_like(mask_array, dtype=np.uint8)
 
     # Назначаем классы
-    new_mask[mask_array == CLASS_IDS["road"]] = 1         # Дорога  -> класс 1
-    new_mask[mask_array == CLASS_IDS["lake"]] = 2         # Озеро   -> класс 2
-    new_mask[mask_array == CLASS_IDS["bridge"]] = 3       # Мост    -> класс 3
-    new_mask[mask_array == CLASS_IDS["tree"]] = 4         # Деревья -> класс 4
-    new_mask[mask_array == CLASS_IDS["background"]] = 0   # Фон     -> класс 0
+    new_mask[mask_array == CLASS_IDS["road"]] = 1  # Дорога  -> класс 1
+    new_mask[mask_array == CLASS_IDS["lake"]] = 2  # Озеро   -> класс 2
+    new_mask[mask_array == CLASS_IDS["bridge"]] = 3  # Мост    -> класс 3
+    new_mask[mask_array == CLASS_IDS["tree"]] = 4  # Деревья -> класс 4
+    new_mask[mask_array == CLASS_IDS["background"]] = 0  # Фон     -> класс 0
 
     return torch.tensor(new_mask, dtype=torch.long)
 
 
 class VALID_Dataset(Dataset):
     """Класс датасета протяженных объектов"""
-    def __init__(self, root_dir, model_type, transforms=None, processor=None, image_size=512):
+
+    def __init__(
+        self, root_dir, model_type, transforms=None, processor=None, image_size=512
+    ):
         self.root_dir = root_dir
         self.image_paths = []
         self.mask_paths = []
@@ -93,7 +113,6 @@ class VALID_Dataset(Dataset):
         self.transform = transforms
         self.image_size = image_size
         self.model_type = model_type
-
 
         img_dir = os.path.join(root_dir, "images")
         mask_dir = os.path.join(root_dir, "masks")
@@ -114,30 +133,41 @@ class VALID_Dataset(Dataset):
         if self.model_type == "segformer":
             encoding = self.processor(image, return_tensors="pt")
             image = encoding["pixel_values"].squeeze(0)  # [3, H, W]
-            mask = mask.resize((self.image_size, self.image_size), resample=Image.NEAREST)
+            mask = mask.resize(
+                (self.image_size, self.image_size), resample=Image.NEAREST
+            )
         else:
             image = self.transform(image)
-            mask = mask.resize((self.image_size, self.image_size), resample=Image.NEAREST)
+            mask = mask.resize(
+                (self.image_size, self.image_size), resample=Image.NEAREST
+            )
         mask = preprocess_mask(mask)
         mask = torch.tensor(np.array(mask), dtype=torch.long)
-        
+
         return image, mask
-    
+
 
 def make_prediction(model, data, model_type):
     """В зависимости от типа модели делаем предсказания моделью для переданных данных"""
     pred = None
     if model_type == "deeplab":
-        pred = model(data)['out']
+        pred = model(data)["out"]
     if model_type == "unet_mobile":
         pred = model(data)
     if model_type == "segformer":
         pred = model(pixel_values=data).logits
-        pred = F.interpolate(pred, size=(512, 512), mode="bilinear", align_corners=False)
+        pred = F.interpolate(
+            pred, size=(512, 512), mode="bilinear", align_corners=False
+        )
     return pred
 
 
-def load_model(model_path, model_type, num_classes=NUM_CLASSES, device="cuda" if torch.cuda.is_available() else "cpu"):
+def load_model(
+    model_path,
+    model_type,
+    num_classes=NUM_CLASSES,
+    device=DEVICE,
+):
     model_config = {
         "deeplab": {
             "constructor": deeplabv3_mobilenet_v3_large,
@@ -148,16 +178,28 @@ def load_model(model_path, model_type, num_classes=NUM_CLASSES, device="cuda" if
         "segformer": {
             "constructor": SegformerForSemanticSegmentation.from_pretrained,
             "pretrained": "nvidia/segformer-b0-finetuned-ade-512-512",
-            "modify_layer": lambda model: setattr(model.decode_head, "classifier", torch.nn.Conv2d(256, num_classes, kernel_size=1)),
+            "modify_layer": lambda model: setattr(
+                model.decode_head,
+                "classifier",
+                torch.nn.Conv2d(256, num_classes, kernel_size=1),
+            ),
             "kwargs": {"num_labels": num_classes, "ignore_mismatched_sizes": True},
         },
         "unet_mobile": {
             "constructor": smp.Unet,
-            "kwargs": {"encoder_name": "mobilenet_v2", "encoder_weights": "imagenet", "classes": num_classes},
+            "kwargs": {
+                "encoder_name": "mobilenet_v2",
+                "encoder_weights": "imagenet",
+                "classes": num_classes,
+            },
         },
         "unet_efficient": {
             "constructor": smp.Unet,
-            "kwargs": {"encoder_name": "efficientnet-b4", "encoder_weights": "imagenet", "classes": num_classes},
+            "kwargs": {
+                "encoder_name": "efficientnet-b4",
+                "encoder_weights": "imagenet",
+                "classes": num_classes,
+            },
         },
     }
 
@@ -174,8 +216,8 @@ def load_model(model_path, model_type, num_classes=NUM_CLASSES, device="cuda" if
         config["modify_layer"](model)
 
     # Загружаем веса
-    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
-    model.to(DEVICE).eval()
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.to(device).eval()
     return model
 
 
@@ -184,7 +226,7 @@ def load_model_for_large_image(model_path, num_classes=2, device="cuda"):
     model = SegformerForSemanticSegmentation.from_pretrained(
         "nvidia/segformer-b0-finetuned-ade-512-512",
         num_labels=num_classes,
-        ignore_mismatched_sizes=True
+        ignore_mismatched_sizes=True,
     ).to(device)
 
     # Заменяем последний классифицирующий слой
@@ -216,8 +258,14 @@ def visualize_losses_and_scores(losses, iou_scores, dice_scores, recall_scores=N
     axes[0].grid()
 
     # IoU Score (переводим тензоры в CPU и numpy)
-    train_scores = [s.cpu().item() if isinstance(s, torch.Tensor) else s for s in iou_scores["train"]]
-    valid_scores = [s.cpu().item() if isinstance(s, torch.Tensor) else s for s in iou_scores["valid"]]
+    train_scores = [
+        s.cpu().item() if isinstance(s, torch.Tensor) else s
+        for s in iou_scores["train"]
+    ]
+    valid_scores = [
+        s.cpu().item() if isinstance(s, torch.Tensor) else s
+        for s in iou_scores["valid"]
+    ]
 
     axes[1].plot(epochs, train_scores, c="r", label="Train")
     axes[1].scatter(epochs, train_scores, c="r")
@@ -229,8 +277,14 @@ def visualize_losses_and_scores(losses, iou_scores, dice_scores, recall_scores=N
     axes[1].legend()
     axes[1].grid()
 
-    train_scores = [s.cpu().item() if isinstance(s, torch.Tensor) else s for s in dice_scores["train"]]
-    valid_scores = [s.cpu().item() if isinstance(s, torch.Tensor) else s for s in dice_scores["valid"]]
+    train_scores = [
+        s.cpu().item() if isinstance(s, torch.Tensor) else s
+        for s in dice_scores["train"]
+    ]
+    valid_scores = [
+        s.cpu().item() if isinstance(s, torch.Tensor) else s
+        for s in dice_scores["valid"]
+    ]
 
     axes[2].plot(epochs, train_scores, c="r", label="Train")
     axes[2].scatter(epochs, train_scores, c="r")
@@ -248,9 +302,9 @@ def visualize_losses_and_scores(losses, iou_scores, dice_scores, recall_scores=N
 def visualize_results(data, prediction, ground_truth):
     _, axes = plt.subplots(3, len(data), figsize=(12, 12))
     all_data = {
-            0: ("Actual Image", data),
-            1: ("Prediction", prediction),
-            2: ("Ground truth", ground_truth)
+        0: ("Actual Image", data),
+        1: ("Prediction", prediction),
+        2: ("Ground truth", ground_truth),
     }
 
     for i in range(3 * len(data)):
@@ -261,9 +315,18 @@ def visualize_results(data, prediction, ground_truth):
         axes[row, col].set_title(all_data[row][0])
 
 
-def testing_model(model, dataloader, model_type, num_images=5, num_classes=NUM_CLASSES, visualization=False):
+def testing_model(
+    model,
+    dataloader,
+    model_type,
+    num_images=5,
+    num_classes=NUM_CLASSES,
+    visualization=False,
+):
     iou_score = JaccardIndex(task="multiclass", num_classes=num_classes).to(DEVICE)
-    dice_score = Dice(num_classes=num_classes, threshold=0.5, zero_division=1e-8).to(DEVICE)
+    dice_score = Dice(num_classes=num_classes, threshold=0.5, zero_division=1e-8).to(
+        DEVICE
+    )
     with torch.no_grad():
         model.eval()
         loss = 0
@@ -283,18 +346,28 @@ def testing_model(model, dataloader, model_type, num_images=5, num_classes=NUM_C
         print("Loss = ", resulted_loss.cpu())
         print("IoU score = ", resulted_iou_score.cpu())
         print("Dice score = ", resulted_dice_score.cpu())
-        
+
         if visualization:
             data, true_mask = next(iter(dataloader))
             data, true_mask = data.to(DEVICE), true_mask.to(DEVICE)
             logits = make_prediction(model, data, model_type)
             predicted_classes = torch.argmax(logits, dim=1)
-            visualize_results(data[:num_images, 0].cpu(), predicted_classes[:num_images].cpu(), true_mask[:num_images].cpu())
+            visualize_results(
+                data[:num_images, 0].cpu(),
+                predicted_classes[:num_images].cpu(),
+                true_mask[:num_images].cpu(),
+            )
 
     return data[:num_images, 0], predicted_classes[:num_images], true_mask[:num_images]
 
 
-def predict_for_one_image(model, image_path, model_type, transform, device="cuda" if torch.cuda.is_available() else "cpu"):
+def predict_for_one_image(
+    model,
+    image_path,
+    model_type,
+    transform,
+    device=DEVICE,
+):
     # Загружаем изображение
     image = Image.open(image_path).convert("RGB")
     input_tensor = transform(image).unsqueeze(0).to(device)
@@ -328,3 +401,17 @@ def predict_for_one_image(model, image_path, model_type, transform, device="cuda
 
     plt.show()
 
+__all__ = [
+    "get_unique_classes",
+    "remove_identifier_files",
+    "split_dataset",
+    "preprocess_mask",
+    "VALID_Dataset",
+    "make_prediction",
+    "load_model",
+    "load_model_for_large_image",
+    "visualize_losses_and_scores",
+    "visualize_results",
+    "testing_model",
+    "predict_for_one_image",
+]
