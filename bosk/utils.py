@@ -37,7 +37,7 @@ def remove_identifier_files(base_path):
                     print(f"Удален: {file}")
 
 
-def split_dataset(base_path, train_doze=0.7, test_doze=0.2, valid_doze=0.1):
+def split_valid_dataset(base_path, train_doze=0.7, test_doze=0.2, valid_doze=0.1):
     """
     Разбивает изображения и маски в соотношении 70/20/10 и перемещает в train, test, valid.
     """
@@ -82,6 +82,70 @@ def split_dataset(base_path, train_doze=0.7, test_doze=0.2, valid_doze=0.1):
 
     print("Разделение завершено.")
 
+def split_and_move_deepglobe_dataset(root_dir, train_doze=0.7, test_doze=0.2, valid_doze=0.1, random_state=42):
+    """
+    Разделяет датасет на train, test и valid части и перемещает файлы в соответствующие папки.
+
+    Args:
+        root_dir (str): Путь к папке с данными (images_and_masks).
+        train_doze (float): Доля тренировочных данных (по умолчанию 0.7).
+        test_doze (float): Доля тестовых данных (по умолчанию 0.2).
+        valid_doze (float): Доля валидационных данных (по умолчанию 0.1).
+        random_state (int): Seed для воспроизводимости (по умолчанию 42).
+    """
+    # Проверка корректности долей
+    if not (0 <= train_doze <= 1 and 0 <= test_doze <= 1 and 0 <= valid_doze <= 1):
+        raise ValueError("Доли должны быть в диапазоне [0, 1].")
+    if not (abs((train_doze + test_doze + valid_doze) - 1.0) < 1e-6):
+        raise ValueError("Сумма долей должна быть равна 1.")
+
+    # Создание папок train, test и valid
+    train_dir = os.path.join(root_dir, "train")
+    test_dir = os.path.join(root_dir, "test")
+    valid_dir = os.path.join(root_dir, "valid")
+
+    for dir_path in [train_dir, test_dir, valid_dir]:
+        os.makedirs(dir_path, exist_ok=True)
+
+    # Сбор всех пар (sat.png, mask.png)
+    image_mask_pairs = []
+    for filename in os.listdir(root_dir):
+        if filename.endswith("_sat.png"):
+            # Получаем число из имени файла
+            number = filename.split("_")[0]
+            # Формируем пути к sat.png и mask.png
+            sat_path = os.path.join(root_dir, f"{number}_sat.png")
+            mask_path = os.path.join(root_dir, f"{number}_mask.png")
+            # Проверяем, существует ли маска
+            if os.path.exists(mask_path):
+                image_mask_pairs.append((sat_path, mask_path))
+            else:
+                print(f"Предупреждение: для {sat_path} не найдена соответствующая маска.")
+
+    train_pairs, temp_pairs = train_test_split(
+        image_mask_pairs, train_size=train_doze, random_state=random_state
+    )
+
+    test_doze_relative = test_doze / (test_doze + valid_doze)
+    test_pairs, valid_pairs = train_test_split(
+        temp_pairs, train_size=test_doze_relative, random_state=random_state
+    )
+
+    # Функция для перемещения файлов
+    def move_files(pairs, destination_dir):
+        for sat_path, mask_path in pairs:
+            # Перемещаем sat.png
+            shutil.move(sat_path, os.path.join(destination_dir, os.path.basename(sat_path)))
+            # Перемещаем mask.png
+            shutil.move(mask_path, os.path.join(destination_dir, os.path.basename(mask_path)))
+
+    # Перемещение файлов в соответствующие папки
+    move_files(train_pairs, train_dir)
+    move_files(test_pairs, test_dir)
+    move_files(valid_pairs, valid_dir)
+
+    print("Разделение и перемещение файлов завершено.")
+
 
 def preprocess_mask(mask):
     """Функция предобработки маски: сохраняем только интересующиеся классы"""
@@ -121,6 +185,55 @@ class VALID_Dataset(Dataset):
         for i, img_name in enumerate(images_list):
             self.image_paths.append(os.path.join(img_dir, img_name))
             self.mask_paths.append(os.path.join(mask_dir, masks_list[i]))
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        image = Image.open(self.image_paths[idx]).convert("RGB")
+        mask = Image.open(self.mask_paths[idx]).convert("L")  # Grayscale
+
+        if self.model_type == "segformer":
+            encoding = self.processor(image, return_tensors="pt")
+            image = encoding["pixel_values"].squeeze(0)  # [3, H, W]
+            mask = mask.resize(
+                (self.image_size, self.image_size), resample=Image.NEAREST
+            )
+        else:
+            image = self.transform(image)
+            mask = mask.resize(
+                (self.image_size, self.image_size), resample=Image.NEAREST
+            )
+        mask = preprocess_mask(mask)
+        mask = torch.tensor(np.array(mask), dtype=torch.long)
+
+        return image, mask
+    
+
+class DeepGlobe_Dataset(Dataset):
+    """Класс датасета протяженных объектов"""
+
+    def __init__(
+        self, root_dir, model_type, transforms=None, processor=None, image_size=1024
+    ):
+        self.root_dir = root_dir
+        self.image_paths = []
+        self.mask_paths = []
+        self.processor = processor
+        self.transform = transforms
+        self.image_size = image_size
+        self.model_type = model_type
+
+        image_mask_paths = sorted(os.listdir(root_dir))
+        print(f"{len(image_mask_paths) = }")
+        for path in image_mask_paths:
+            if path.endswith("sat.png"):
+                self.image_paths.append(os.path.join(root_dir, path))
+            elif path.endswith("mask.png"):
+                self.mask_paths.append(os.path.join(root_dir, path))
+            else:
+                # Пропускаем файлы, которые не заканчиваются на sat.png или mask.png
+                continue
 
     def __len__(self):
         return len(self.image_paths)
@@ -403,9 +516,11 @@ def predict_for_one_image(
 __all__ = [
     "get_unique_classes",
     "remove_identifier_files",
-    "split_dataset",
+    "split_valid_dataset",
+    "split_and_move_deepglobe_dataset",
     "preprocess_mask",
     "VALID_Dataset",
+    "DeepGlobe_Dataset",
     "make_prediction",
     "load_model",
     "load_model_for_large_image",

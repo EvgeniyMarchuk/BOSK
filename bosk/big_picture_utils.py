@@ -41,7 +41,7 @@ def get_patches(image: Image.Image, num_patches: int) -> List[np.ndarray]:
     return patches
 
 
-def combine_patches(patches: List[np.ndarray]) -> Image.Image:
+def combine_patches(patches: List[np.ndarray], binary: bool) -> Image.Image:
     """Объединяет патчи в единое изображение
     Args:
         patches: Набор патчей, которые необходимо объединить в единое изображение.
@@ -63,7 +63,8 @@ def combine_patches(patches: List[np.ndarray]) -> Image.Image:
         col_idx = i % patches_per_side * patch_size
         image[row_idx:row_idx + patch_size, col_idx:col_idx + patch_size] = \
             patch.reshape(patch_size, patch_size, num_channels)
-    
+    if binary:
+        image[~np.isclose(image, 0.0)] = 1
     image = Image.fromarray(image.reshape(image_size, image_size))
     return image
 

@@ -24,6 +24,8 @@ from torchvision.models.segmentation import deeplabv3_mobilenet_v3_large
 from tqdm.notebook import tqdm
 from transformers import (SegformerForSemanticSegmentation,
                           SegformerImageProcessor)
+from sklearn.model_selection import train_test_split
+
 
 __all__ = [
     "os",
@@ -54,4 +56,5 @@ __all__ = [
     "tqdm",
     "SegformerForSemanticSegmentation",
     "SegformerImageProcessor",
+    "train_test_split"
 ]

@@ -1,4 +1,7 @@
+import sys
 import torch
+
+sys.path.insert(0, "/home/user/BOSK")
 
 # Определеяем устройство на котором будем производить вычисления
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
