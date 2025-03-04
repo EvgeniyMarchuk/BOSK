@@ -102,7 +102,6 @@ def preprocess_mask(mask):
 
 class VALID_Dataset(Dataset):
     """Класс датасета протяженных объектов"""
-
     def __init__(
         self, root_dir, model_type, transforms=None, processor=None, image_size=512
     ):
